@@ -1,0 +1,124 @@
+{
+  "checked_at": "2026-11-15",
+  "source": "https://polza.ai/api/v1/models",
+  "models": [
+    {
+      "id": "anthropic/claude-haiku-5.5",
+      "input_modalities": [
+        "text",
+        "image",
+        "file"
+      ],
+      "top_provider": "google-vertex/global",
+      "pricing": {
+        "prompt_per_million": "12.17160000",
+        "completion_per_million": "60.85800000",
+        "web_search_per_thousand": "1217.16000000",
+        "input_cache_read_per_million": "1.21716000",
+        "input_cache_write_per_million": "15.21450000",
+        "overrides": [
+          {
+            "min_prompt_tokens": 100000,
+            "prompt_per_million": "60.85800000",
+            "completion_per_million": "304.29000000",
+            "input_cache_read_per_million": "6.08580000",
+            "input_cache_write_per_million": "76.07250000"
+          }
+        ],
+        "currency": "RUB"
+      }
+    },
+    {
+      "id": "openai/gpt-6.1-sol",
+      "input_modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "top_provider": "openai/flex",
+      "pricing": {
+        "prompt_per_million": "121.71600000",
+        "completion_per_million": "608.58000000",
+        "web_search_per_thousand": "1217.16000000",
+        "input_cache_read_per_million": "6.08580000",
+        "input_cache_write_per_million": "152.14500000",
+        "overrides": [
+          {
+            "min_prompt_tokens": 272000,
+            "prompt_per_million": "243.43200000",
+            "completion_per_million": "912.87000000",
+            "input_cache_read_per_million": "12.17160000",
+            "input_cache_write_per_million": "304.29000000"
+          }
+        ],
+        "currency": "RUB"
+      }
+    },
+    {
+      "id": "anthropic/claude-sonnet-5.5",
+      "input_modalities": [
+        "text",
+        "image",
+        "file"
+      ],
+      "top_provider": "gpt-a",
+      "pricing": {
+        "prompt_per_million": "192.09268800",
+        "completion_per_million": "960.46344000",
+        "input_cache_read_per_million": "9.60463440",
+        "input_cache_write_per_million": "240.11586000",
+        "currency": "RUB"
+      }
+    },
+    {
+      "id": "anthropic/claude-opus-5.5",
+      "input_modalities": [
+        "text",
+        "image",
+        "file"
+      ],
+      "top_provider": "gpt-a",
+      "pricing": {
+        "prompt_per_million": "384.18537600",
+        "completion_per_million": "1920.92688000",
+        "input_cache_read_per_million": "19.20926880",
+        "input_cache_write_per_million": "480.23172000",
+        "currency": "RUB"
+      }
+    },
+    {
+      "id": "google/gemini-2.5-flash-lite",
+      "input_modalities": [
+        "text",
+        "image",
+        "file",
+        "audio",
+        "video"
+      ],
+      "top_provider": "google-ai-studio/flex",
+      "pricing": {
+        "prompt_per_million": "6.08580000",
+        "completion_per_million": "24.34320000",
+        "image_input_per_million": "6.08580000",
+        "audio_per_million": "18.25740000",
+        "web_search_per_thousand": "1704.02400000",
+        "internal_reasoning_per_million": "24.34320000",
+        "input_cache_read_per_million": "0.60858000",
+        "input_cache_write_per_million": "5.07150000",
+        "input_audio_cache_per_million": "1.82574000",
+        "currency": "RUB"
+      }
+    },
+    {
+      "id": "typesafe/jev",
+      "input_modalities": [
+        "text"
+      ],
+      "top_provider": "typesafe",
+      "pricing": {
+        "prompt_per_million": "17.38800000",
+        "currency": "RUB"
+      }
+    }
+  ]
+}

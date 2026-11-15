@@ -198,8 +198,9 @@ def safe_tier(needs_vision):
     return next(name for name in ORDER if compatible(name, needs_vision))
 
 
-def ask_jev(state):
-    body = {
+def jev_body(state):
+    """Payload shared by the live router and the offline cost planner."""
+    return {
         "model": "typesafe/jev",
         "state": state,
         "questions": {
@@ -213,9 +214,12 @@ def ask_jev(state):
             }
         },
     }
+
+
+def ask_jev(state):
     req = urllib.request.Request(
         POLZA + "/v1/systemone",
-        data=json.dumps(body).encode(),
+        data=json.dumps(jev_body(state)).encode(),
         headers={"Authorization": "Bearer " + KEY, "Content-Type": "application/json"},
     )
     with urllib.request.urlopen(req, timeout=15) as resp:

@@ -24,3 +24,7 @@ htmlcov/
 .idea/
 .vscode/
 *.log
+
+# Local benchmark prices and paid run artifacts
+benchmark/config.local.json
+benchmark/runs/
