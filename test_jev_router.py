@@ -1,5 +1,6 @@
 """Offline regression tests: python3 -m unittest -v test_jev_router."""
 import copy
+from contextlib import ExitStack
 import io
 import json
 import unittest
@@ -18,11 +19,15 @@ def user(content):
 
 class VisionRoutingTests(unittest.TestCase):
     def setUp(self):
+        # unittest.TestCase.enterContext was added in 3.11; use stdlib ExitStack on 3.10 too.
+        contexts = ExitStack()
+        self.addCleanup(contexts.close)
+        self.enter_context = contexts.enter_context
         # Every test is offline, including when an expected mock is missing.
-        self.network = self.enterContext(patch.object(
+        self.network = self.enter_context(patch.object(
             router.urllib.request, "urlopen",
             side_effect=AssertionError("Unmocked network access is forbidden")))
-        self.enterContext(patch("builtins.print"))
+        self.enter_context(patch("builtins.print"))
         router.sessions.clear()
         if hasattr(router, "vision_cache"):
             router.vision_cache.clear()

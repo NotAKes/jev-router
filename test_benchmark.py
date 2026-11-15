@@ -7,6 +7,7 @@ import base64
 from collections import Counter
 from contextlib import redirect_stderr, redirect_stdout
 import copy
+from contextlib import ExitStack
 import io
 import json
 from pathlib import Path
@@ -22,17 +23,21 @@ from benchmark import runner as bench
 
 class OfflineTest(unittest.TestCase):
     def setUp(self):
-        self.network = self.enterContext(patch.object(
+        # unittest.TestCase.enterContext was added in 3.11; use stdlib ExitStack on 3.10 too.
+        contexts = ExitStack()
+        self.addCleanup(contexts.close)
+        self.enter_context = contexts.enter_context
+        self.network = self.enter_context(patch.object(
             urllib.request, "urlopen", side_effect=AssertionError("Network forbidden")))
-        self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.tmp = Path(self.enter_context(tempfile.TemporaryDirectory()))
         self.config = bench.read_json(bench.ROOT / "config.example.json")
         for model, rate in self.config["prices"].items():
             for key in rate:
                 rate[key] = 0.01 if model == "typesafe/jev" else 1.0
         self.cases = bench.load_cases(bench.ROOT / "data/cases.jsonl", "dev")
-        self.enterContext(patch.object(bench.router, "KEY", "offline-test-key"))
-        self.enterContext(patch.object(bench.router, "sessions", {}))
-        self.enterContext(patch.object(bench.router, "vision_cache", {}))
+        self.enter_context(patch.object(bench.router, "KEY", "offline-test-key"))
+        self.enter_context(patch.object(bench.router, "sessions", {}))
+        self.enter_context(patch.object(bench.router, "vision_cache", {}))
 
     def response(self, text="47", usage=True):
         payload = {"choices": [{"message": {"content": text}, "finish_reason": "stop"}]}
