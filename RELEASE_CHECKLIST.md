@@ -15,7 +15,7 @@
 - [x] Владелец подтвердил MIT; LICENSE добавлен.
 - [x] Владелец подтвердил изменение видимости репозитория PRIVATE → PUBLIC.
 - [x] CI в GitHub успешно проверил Python 3.10 и 3.12: run 43721856013 (66 тестов на каждой версии).
-- [x] Опубликован тег и GitHub Release [v0.1.0](https://github.com/NotAKes/jev-router/releases/tag/v0.1.0), commit a4048fa; финальный CI run 43722032324 успешен на Python 3.10/3.12.
+- [x] Опубликован тег и GitHub Release [v0.1.0](https://github.com/NotAKes/uprosti-vibe/releases/tag/v0.1.0), commit a4048fa; финальный CI run 43722032324 успешен на Python 3.10/3.12.
 
 ## Границы публикации
 
