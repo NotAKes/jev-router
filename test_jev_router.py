@@ -267,5 +267,26 @@ class VisionRoutingTests(unittest.TestCase):
         self.assertEqual(called, [tiers["haiku"]["model"], tiers["sonnet"]["model"]])
 
 
+class CachingTests(unittest.TestCase):
+    def test_jev_stable_criteria_precede_dynamic_state(self):
+        body = router.jev_body("per-request state")
+        self.assertEqual(list(body), ["model", "questions", "state"])
+        self.assertEqual(body["state"], "per-request state")
+
+    def test_anthropic_cache_marks_system_copy_only_when_enabled(self):
+        request = {"model": "anthropic/claude-haiku-5.5", "messages": [
+            {"role": "system", "content": "stable"}, {"role": "user", "content": "hi"}]}
+        original = copy.deepcopy(request)
+        with patch.object(router, "ANTHROPIC_CACHE", False):
+            self.assertIs(router.with_anthropic_cache(request), request)
+        with patch.object(router, "ANTHROPIC_CACHE", True):
+            cached = router.with_anthropic_cache(request)
+            self.assertEqual(request, original)
+            self.assertEqual(cached["messages"][0]["content"][0]["cache_control"], {"type": "ephemeral"})
+            self.assertEqual(cached["messages"][1], request["messages"][1])
+            openai = dict(request, model="openai/gpt-6.1-sol")
+            self.assertIs(router.with_anthropic_cache(openai), openai)
+
+
 if __name__ == "__main__":
     unittest.main()

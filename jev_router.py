@@ -199,10 +199,13 @@ def safe_tier(needs_vision):
 
 
 def jev_body(state):
-    """Payload shared by the live router and the offline cost planner."""
+    """Payload shared by the live router and the offline cost planner.
+
+    Stable criteria come first so the long unchanging prefix can be cached;
+    the per-request state is appended last.
+    """
     return {
         "model": "typesafe/jev",
-        "state": state,
         "questions": {
             "tier": {
                 "type": "choice",
@@ -213,6 +216,7 @@ def jev_body(state):
                 "criteria": {name: TIERS[name]["when"] for name in ORDER},
             }
         },
+        "state": state,
     }
 
 
@@ -263,6 +267,28 @@ def route(messages):
     task = task.replace("\n", " ")[:70] or ("[изображение]" if needs_vision else "")
     print("%s  %-6s -> %s  [%s]  %s" % (now(), tier, TIERS[tier]["model"], note, task), flush=True)
     return tier, key
+
+
+ANTHROPIC_CACHE = os.environ.get("JEV_ANTHROPIC_CACHE", "") == "1"
+
+
+def with_anthropic_cache(body):
+    """Mark the stable system prompt as cacheable for Anthropic models (opt-in).
+
+    Returns a copy; the original request is never mutated. Enabled only by
+    JEV_ANTHROPIC_CACHE=1 until the Polza format has been verified with a paid call.
+    """
+    if not ANTHROPIC_CACHE or not str(body.get("model", "")).startswith("anthropic/"):
+        return body
+    copy = dict(body)
+    messages = [dict(m) for m in body.get("messages", [])]
+    for message in messages:
+        if message.get("role") == "system" and isinstance(message.get("content"), str):
+            message["content"] = [{"type": "text", "text": message["content"],
+                                   "cache_control": {"type": "ephemeral"}}]
+            break
+    copy["messages"] = messages
+    return copy
 
 
 def open_upstream(path, body):
@@ -336,7 +362,7 @@ class Handler(BaseHTTPRequestHandler):
             chain = [safe_tier(needs_vision)]
         for i, name in enumerate(chain):
             body["model"] = TIERS[name]["model"]
-            resp, err = open_upstream(self.path, body)
+            resp, err = open_upstream(self.path, with_anthropic_cache(body))
             if resp:
                 if i > 0:
                     sessions[key] = name   # дальше в этой задаче сразу запасная модель
