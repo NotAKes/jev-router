@@ -269,14 +269,15 @@ def route(messages):
     return tier, key
 
 
-ANTHROPIC_CACHE = os.environ.get("JEV_ANTHROPIC_CACHE", "") == "1"
+# On by default: verified 2026-11-17 on Haiku (cached_tokens 7554 of 7575 on the repeat call).
+ANTHROPIC_CACHE = os.environ.get("JEV_ANTHROPIC_CACHE", "1") != "0"
 
 
 def with_anthropic_cache(body):
     """Mark the stable system prompt as cacheable for Anthropic models (opt-in).
 
-    Returns a copy; the original request is never mutated. Enabled only by
-    JEV_ANTHROPIC_CACHE=1 until the Polza format has been verified with a paid call.
+    Returns a copy; the original request is never mutated. Disable with
+    JEV_ANTHROPIC_CACHE=0.
     """
     if not ANTHROPIC_CACHE or not str(body.get("model", "")).startswith("anthropic/"):
         return body
