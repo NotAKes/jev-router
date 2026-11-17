@@ -55,7 +55,23 @@ TIERS = {
         "when": "Простое действие или короткий вопрос: посмотреть файлы и папки, "
                 "открыть сайт и прочитать страницу, запустить одну-две команды, "
                 "переименовать или переместить файлы, короткий факт или перевод.",
-        "fallback": ["sonnet"],
+        "fallback": ["mini", "sonnet"],
+    },
+    "mini": {
+        "model": "openai/gpt-5.4-mini",
+        "vision": True,
+        "when": "Небольшая рабочая задача с кодом или текстом: скрипт на несколько "
+                "строк, понятная правка, разбор короткого файла, 2–3 связанных шага, "
+                "где нужна надёжность, но не архитектурная глубина.",
+        "fallback": ["flash", "sol"],
+    },
+    "flash": {
+        "model": "google/gemini-3.8-flash",
+        "vision": True,
+        "when": "Задача среднего размера с длинным контекстом или документами: "
+                "сводка большого текста или таблицы, поиск по длинному файлу, "
+                "анализ нескольких изображений, где важны скорость и объём контекста.",
+        "fallback": ["sol", "sonnet"],
     },
     "sol": {
         "model": "openai/gpt-6.1-sol",
@@ -82,11 +98,28 @@ TIERS = {
         "fallback": [],
     },
 }
-ORDER = ["haiku", "sol", "sonnet", "opus"]
+ORDER = ["haiku", "mini", "flash", "sol", "sonnet", "opus"]
 
-DEFAULT_TIER = "sonnet"     # если Jev недоступен
+DEFAULT_TIER = "sonnet"     # если Jev недоступен (меняется при отключении уровней)
 UNSURE = 0.5                # ниже этой уверенности Jev считается неуверенным
 CANDIDATE = 0.25            # при неуверенности берём самый дорогой уровень с вероятностью от этого порога
+
+
+def apply_disabled(names):
+    """Remove disabled tiers everywhere: Jev choices, fallbacks, default and order."""
+    unknown = [n for n in names if n not in TIERS]
+    if unknown:
+        raise SystemExit("Неизвестные уровни для отключения: " + ", ".join(unknown))
+    if len(names) >= len(TIERS):
+        raise SystemExit("Нельзя отключить все уровни")
+    for name in names:
+        TIERS.pop(name)
+    for tier in TIERS.values():
+        tier["fallback"] = [f for f in tier["fallback"] if f in TIERS]
+    ORDER[:] = [n for n in ORDER if n in TIERS]
+    global DEFAULT_TIER
+    if DEFAULT_TIER not in TIERS:
+        DEFAULT_TIER = "sonnet" if "sonnet" in TIERS else ORDER[0]
 
 # Выбор держится до следующего сообщения пользователя, чтобы модель
 # не менялась посреди цепочки вызовов инструментов.
@@ -371,8 +404,25 @@ class Handler(BaseHTTPRequestHandler):
         self.send_bytes(*err)
 
 
+def parse_disabled(argv, environ):
+    """Names from --disable a,b and JEV_DISABLE_TIERS=a,b; both may be used."""
+    names = []
+    for i, arg in enumerate(argv):
+        if arg == "--disable" and i + 1 < len(argv):
+            names += argv[i + 1].split(",")
+        elif arg.startswith("--disable="):
+            names += arg.split("=", 1)[1].split(",")
+    names += environ.get("JEV_DISABLE_TIERS", "").split(",")
+    return [n.strip() for n in names if n.strip()]
+
+
 if __name__ == "__main__":
+    import sys
+    disabled = parse_disabled(sys.argv[1:], os.environ)
+    if disabled:
+        apply_disabled(disabled)
     if not KEY:
         raise SystemExit("Задай ключ: POLZA_API_KEY=sk-polza-... python3 jev_router.py")
+    print("Включены уровни: " + ", ".join(ORDER), flush=True)
     print("jev_router слушает http://127.0.0.1:%d — в Goose выбирай модель auto" % PORT, flush=True)
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()

@@ -285,3 +285,46 @@ class CachingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TierDisablingTests(unittest.TestCase):
+    def setUp(self):
+        self.saved = (copy.deepcopy(router.TIERS), list(router.ORDER), router.DEFAULT_TIER)
+
+    def tearDown(self):
+        router.TIERS.clear()
+        router.TIERS.update(self.saved[0])
+        router.ORDER[:] = self.saved[1]
+        router.DEFAULT_TIER = self.saved[2]
+
+    def test_new_middle_tiers_exist_and_are_vision_capable(self):
+        for name in ("mini", "flash"):
+            self.assertIn(name, router.TIERS)
+            self.assertTrue(router.TIERS[name]["vision"])
+        self.assertEqual(router.ORDER.index("haiku") + 1, router.ORDER.index("mini"))
+        self.assertLess(router.ORDER.index("flash"), router.ORDER.index("sol"))
+
+    def test_disabling_removes_tier_from_choices_fallbacks_and_default(self):
+        router.apply_disabled(["mini", "flash"])
+        self.assertNotIn("mini", router.TIERS)
+        self.assertNotIn("mini", router.ORDER)
+        self.assertNotIn("flash", router.ORDER)
+        self.assertNotIn("mini", router.TIERS["haiku"]["fallback"])
+        self.assertIn(router.DEFAULT_TIER, router.TIERS)
+
+    def test_disabling_default_tier_moves_default(self):
+        router.apply_disabled(["sonnet"])
+        self.assertNotIn(router.DEFAULT_TIER, ["sonnet"])
+        self.assertIn(router.DEFAULT_TIER, router.TIERS)
+
+    def test_unknown_or_all_tiers_rejected(self):
+        with self.assertRaises(SystemExit):
+            router.apply_disabled(["gpt-9000"])
+        with self.assertRaises(SystemExit):
+            router.apply_disabled(list(router.TIERS))
+
+    def test_flags_and_env_are_combined(self):
+        names = router.parse_disabled(["--disable", "mini,flash", "--disable=opus"],
+                                      {"JEV_DISABLE_TIERS": "haiku"})
+        self.assertEqual(sorted(names), ["flash", "haiku", "mini", "opus"])
+        self.assertEqual(router.parse_disabled([], {}), [])
