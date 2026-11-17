@@ -235,6 +235,7 @@ class VisionRoutingTests(unittest.TestCase):
     def test_handler_forwards_original_images(self):
         original = copy.deepcopy(self.messages)
         with patch.object(router, "route", return_value=("sonnet", "session")), \
+                patch.object(router, "ANTHROPIC_CACHE", False), \
                 patch.object(router, "open_upstream", return_value=(Mock(), None)) as upstream:
             handler = self.post({"model": "auto", "messages": self.messages})
         self.assertEqual(upstream.call_args.args[1]["messages"], original)
@@ -278,9 +279,46 @@ class CachingTests(unittest.TestCase):
             cached = router.with_anthropic_cache(request)
             self.assertEqual(request, original)
             self.assertEqual(cached["messages"][0]["content"][0]["cache_control"], {"type": "ephemeral"})
-            self.assertEqual(cached["messages"][1], request["messages"][1])
+            self.assertEqual(cached["messages"][1]["content"][0]["cache_control"], {"type": "ephemeral"})
             openai = dict(request, model="openai/gpt-6.1-sol")
             self.assertIs(router.with_anthropic_cache(openai), openai)
+
+    def test_anthropic_cache_marks_last_message_too(self):
+        request = {"model": "anthropic/claude-sonnet-5.5", "messages": [
+            {"role": "system", "content": "stable"},
+            {"role": "user", "content": "first"},
+            {"role": "assistant", "content": "answer"},
+            {"role": "user", "content": "second"}]}
+        original = copy.deepcopy(request)
+        with patch.object(router, "ANTHROPIC_CACHE", True):
+            cached = router.with_anthropic_cache(request)
+        self.assertEqual(request, original)
+        self.assertEqual(cached["messages"][3]["content"][-1]["cache_control"], {"type": "ephemeral"})
+        self.assertEqual(cached["messages"][1], request["messages"][1])
+
+    def test_anthropic_cache_skips_empty_tool_call_message(self):
+        request = {"model": "anthropic/claude-sonnet-5.5", "messages": [
+            {"role": "user", "content": "go"},
+            {"role": "assistant", "content": None, "tool_calls": []}]}
+        with patch.object(router, "ANTHROPIC_CACHE", True):
+            cached = router.with_anthropic_cache(request)
+        self.assertEqual(cached["messages"][0]["content"][-1]["cache_control"], {"type": "ephemeral"})
+        self.assertIsNone(cached["messages"][1]["content"])
+
+    def test_tier_is_not_downgraded_within_session(self):
+        with patch.object(router, "describe_image", return_value="x"), \
+                patch.object(router, "ask_jev", side_effect=[("opus", 1.0, {}), ("haiku", 1.0, {})]):
+            router.route([user("big task")])
+            tier, _ = router.route([user("big task"), {"role": "assistant", "content": "ok"},
+                                    user("small follow-up")])
+        self.assertEqual(tier, "opus")
+
+    def test_tier_can_be_upgraded_within_session(self):
+        with patch.object(router, "ask_jev", side_effect=[("haiku", 1.0, {}), ("opus", 1.0, {})]):
+            router.route([user("task")])
+            tier, _ = router.route([user("task"), {"role": "assistant", "content": "ok"},
+                                    user("harder")])
+        self.assertEqual(tier, "opus")
 
 
 if __name__ == "__main__":

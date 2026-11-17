@@ -269,8 +269,9 @@ def route(messages):
     last_is_user = bool(messages) and messages[-1].get("role") == "user"
     needs_vision = has_images(messages)
 
-    if not last_is_user and compatible(sessions.get(key), needs_vision):
-        tier, note = sessions[key], "продолжение"
+    pinned = sessions.get(key)
+    if not last_is_user and compatible(pinned, needs_vision):
+        tier, note = pinned, "продолжение"
     else:
         try:
             state = routing_state(messages)
@@ -290,6 +291,10 @@ def route(messages):
             # Не логируем URL/картинки и тела ответов, которые могут содержать секреты.
             tier = safe_tier(needs_vision)
             note = "анализ/роутинг недоступен (%s)" % type(e).__name__
+        # Уровень задачи не понижаем: иначе кеш прошлых ходов сбрасывается.
+        if compatible(pinned, needs_vision) and pinned in ORDER and tier in ORDER \
+                and ORDER.index(tier) < ORDER.index(pinned):
+            tier, note = pinned, note + ", удержан " + pinned
         sessions[key] = tier
 
     task = text_of(users[-1].get("content")) if users else ""
@@ -303,19 +308,28 @@ ANTHROPIC_CACHE = os.environ.get("JEV_ANTHROPIC_CACHE", "1") != "0"
 
 
 def with_anthropic_cache(body):
-    """Mark the stable system prompt as cacheable for Anthropic models (opt-in).
+    """Mark cache breakpoints for Anthropic models (opt-in).
 
-    Returns a copy; the original request is never mutated. Disable with
-    JEV_ANTHROPIC_CACHE=0.
+    Two breakpoints: the stable system prompt, and the last message with content,
+    so the whole conversation prefix is reused on the next turn. Returns a copy;
+    the original request is never mutated. Disable with JEV_ANTHROPIC_CACHE=0.
     """
     if not ANTHROPIC_CACHE or not str(body.get("model", "")).startswith("anthropic/"):
         return body
     copy = dict(body)
     messages = [dict(m) for m in body.get("messages", [])]
+    marker = {"type": "ephemeral"}
     for message in messages:
         if message.get("role") == "system" and isinstance(message.get("content"), str):
-            message["content"] = [{"type": "text", "text": message["content"],
-                                   "cache_control": {"type": "ephemeral"}}]
+            message["content"] = [{"type": "text", "text": message["content"], "cache_control": marker}]
+            break
+    for message in reversed(messages):
+        content = message.get("content")
+        if isinstance(content, str) and content and message.get("role") != "system":
+            message["content"] = [{"type": "text", "text": content, "cache_control": marker}]
+            break
+        if isinstance(content, list) and content and isinstance(content[-1], dict):
+            message["content"] = content[:-1] + [dict(content[-1], cache_control=marker)]
             break
     copy["messages"] = messages
     return copy
