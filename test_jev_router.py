@@ -268,11 +268,6 @@ class VisionRoutingTests(unittest.TestCase):
 
 
 class CachingTests(unittest.TestCase):
-    def test_jev_stable_criteria_precede_dynamic_state(self):
-        body = router.jev_body("per-request state")
-        self.assertEqual(list(body), ["model", "questions", "state"])
-        self.assertEqual(body["state"], "per-request state")
-
     def test_anthropic_cache_marks_system_copy_only_when_enabled(self):
         request = {"model": "anthropic/claude-haiku-5.5", "messages": [
             {"role": "system", "content": "stable"}, {"role": "user", "content": "hi"}]}

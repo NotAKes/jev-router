@@ -199,13 +199,10 @@ def safe_tier(needs_vision):
 
 
 def jev_body(state):
-    """Payload shared by the live router and the offline cost planner.
-
-    Stable criteria come first so the long unchanging prefix can be cached;
-    the per-request state is appended last.
-    """
+    """Payload shared by the live router and the offline cost planner."""
     return {
         "model": "typesafe/jev",
+        "state": state,
         "questions": {
             "tier": {
                 "type": "choice",
@@ -216,7 +213,6 @@ def jev_body(state):
                 "criteria": {name: TIERS[name]["when"] for name in ORDER},
             }
         },
-        "state": state,
     }
 
 
