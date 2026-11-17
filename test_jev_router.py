@@ -342,6 +342,32 @@ class TierDisablingTests(unittest.TestCase):
         self.assertEqual(router.ORDER.index("haiku") + 1, router.ORDER.index("mini"))
         self.assertLess(router.ORDER.index("flash"), router.ORDER.index("sol"))
 
+    def test_gpt_62_models_are_available_and_ordered(self):
+        expected = {
+            "sol": "openai/gpt-6.2-sol",
+            "sol-pro": "openai/gpt-6.2-sol-pro",
+            "astra": "openai/gpt-6.2-astra",
+            "astra-pro": "openai/gpt-6.2-astra-pro",
+        }
+        for tier, model in expected.items():
+            with self.subTest(tier=tier):
+                self.assertEqual(router.TIERS[tier]["model"], model)
+                self.assertTrue(router.TIERS[tier]["vision"])
+                self.assertIn(tier, router.jev_body("task")["questions"]["tier"]["criteria"])
+        self.assertEqual(set(router.ORDER), set(router.TIERS))
+        for lower, higher in zip(expected, list(expected)[1:]):
+            self.assertLess(router.ORDER.index(lower), router.ORDER.index(higher))
+        for config in router.TIERS.values():
+            for fallback in config["fallback"]:
+                self.assertIn(fallback, router.TIERS)
+
+    def test_gpt_62_pro_and_astra_tiers_can_be_disabled(self):
+        router.apply_disabled(["sol-pro", "astra", "astra-pro"])
+        self.assertIn("sol", router.TIERS)
+        for tier in ("sol-pro", "astra", "astra-pro"):
+            self.assertNotIn(tier, router.ORDER)
+            self.assertNotIn(tier, router.jev_body("task")["questions"]["tier"]["criteria"])
+
     def test_disabling_removes_tier_from_choices_fallbacks_and_default(self):
         router.apply_disabled(["mini", "flash"])
         self.assertNotIn("mini", router.TIERS)

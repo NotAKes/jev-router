@@ -4,11 +4,28 @@
   "max_tokens": 2048,
   "image_input_tokens": 8192,
   "prices_checked_at": "2026-11-15",
+  "gpt_62_prices_checked_at": "2026-11-17",
   "prices_source": "https://polza.ai/api/v1/models",
   "prices": {
     "anthropic/claude-haiku-5.5": {
       "input_per_million_rub": 12.1716,
       "output_per_million_rub": 60.858
+    },
+    "openai/gpt-6.2-sol": {
+      "input_per_million_rub": 237.2256,
+      "output_per_million_rub": 1186.128
+    },
+    "openai/gpt-6.2-sol-pro": {
+      "input_per_million_rub": 237.2256,
+      "output_per_million_rub": 1186.128
+    },
+    "openai/gpt-6.2-astra": {
+      "input_per_million_rub": 948.9024,
+      "output_per_million_rub": 4744.512
+    },
+    "openai/gpt-6.2-astra-pro": {
+      "input_per_million_rub": 948.9024,
+      "output_per_million_rub": 4744.512
     },
     "openai/gpt-6.1-sol": {
       "input_per_million_rub": 121.716,
