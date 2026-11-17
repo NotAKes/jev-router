@@ -274,7 +274,6 @@ class CachingTests(unittest.TestCase):
         self.assertEqual(body["state"], "per-request state")
 
     def test_anthropic_cache_marks_system_copy_only_when_enabled(self):
-        self.assertTrue(router.ANTHROPIC_CACHE or True)
         request = {"model": "anthropic/claude-haiku-5.5", "messages": [
             {"role": "system", "content": "stable"}, {"role": "user", "content": "hi"}]}
         original = copy.deepcopy(request)
