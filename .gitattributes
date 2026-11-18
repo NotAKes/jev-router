@@ -1,2 +1,7 @@
 *.bat text eol=crlf
 /WINDOWS_AUTOSTART_JEV_NO_ANTHROPIC.txt text eol=crlf
+
+# Benchmark fixtures are verified byte for byte across operating systems.
+/benchmark/**/*.jsonl text eol=lf
+/benchmark/**/*.json text eol=lf
+/benchmark/**/*.md text eol=lf

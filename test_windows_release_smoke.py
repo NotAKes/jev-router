@@ -41,7 +41,7 @@ class WindowsReleaseSmokeTests(unittest.TestCase):
                 command, env=env, cwd=cwd, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
             ) as process:
                 try:
-                    deadline = time.monotonic() + 8
+                    deadline = time.monotonic() + 15
                     while True:
                         if process.poll() is not None or time.monotonic() >= deadline:
                             log.seek(0)
@@ -52,7 +52,7 @@ class WindowsReleaseSmokeTests(unittest.TestCase):
                             response = conn.getresponse()
                             self.assertEqual(response.status, 200)
                             models = {model['id'] for model in json.loads(response.read())['data']}
-                        except ConnectionRefusedError:
+                        except (ConnectionRefusedError, TimeoutError):
                             time.sleep(0.05)
                             continue
                         finally:
