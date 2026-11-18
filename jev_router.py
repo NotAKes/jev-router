@@ -27,8 +27,21 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 POLZA = os.environ.get("POLZA_BASE", "https://polza.ai/api")
-KEY = os.environ.get("POLZA_API_KEY", "")
-PORT = int(os.environ.get("JEV_ROUTER_PORT", "8787"))
+KEY = os.environ.get("POLZA_API_KEY", "").strip()
+
+
+def router_port(environ):
+    try:
+        port = int(environ.get("JEV_ROUTER_PORT", "8787"))
+    except ValueError:
+        port = 0
+    if not 1 <= port <= 65535:
+        raise ValueError("JEV_ROUTER_PORT must be a number between 1 and 65535.")
+    return port
+
+
+def has_api_key(key):
+    return bool(key and key not in {"sk-polza-PASTE-YOUR-KEY-HERE", "sk-polza-..."})
 
 # Проверено по публичному каталогу Polza: chat-модель с поддержкой изображений.
 VISION_MODEL = os.environ.get("JEV_VISION_MODEL", "google/gemini-2.5-flash-lite")
@@ -134,6 +147,7 @@ CANDIDATE = 0.25            # при неуверенности берём са�
 
 def apply_disabled(names):
     """Remove disabled tiers everywhere: Jev choices, fallbacks, default and order."""
+    names = list(dict.fromkeys(names))
     unknown = [n for n in names if n not in TIERS]
     if unknown:
         raise SystemExit("Неизвестные уровни для отключения: " + ", ".join(unknown))
@@ -148,9 +162,32 @@ def apply_disabled(names):
     if DEFAULT_TIER not in TIERS:
         DEFAULT_TIER = "sonnet" if "sonnet" in TIERS else ORDER[0]
 
-# Внутри цепочки инструментов модель закреплена; на новом сообщении
-# пользователя Jev может повысить уровень, но не понизить его.
+# Закрепление допустимо только при явно переданном ID чата.
+SESSION_TTL = 1800
+SESSION_LIMIT = 1024
 sessions = {}
+sessions_lock = Lock()
+
+
+def pinned_tier(key):
+    if not key:
+        return None
+    with sessions_lock:
+        entry = sessions.pop(key, None)
+        if entry is not None and time.monotonic() - entry[0] < SESSION_TTL:
+            sessions[key] = (time.monotonic(), entry[1])
+            return entry[1]
+    return None
+
+
+def remember_tier(key, tier):
+    if not key:
+        return
+    with sessions_lock:
+        sessions.pop(key, None)
+        if len(sessions) >= SESSION_LIMIT:
+            del sessions[next(iter(sessions))]
+        sessions[key] = (time.monotonic(), tier)
 
 
 def now():
@@ -287,16 +324,12 @@ def ask_jev(state):
     return answer["choice"], answer.get("confidence", 1.0), answer.get("probabilities", {})
 
 
-def route(messages):
-    users = [m for m in messages if m.get("role") == "user"]
-    # Изображения тоже участвуют в идентификаторе: image-only чаты не смешиваются.
-    key = hashlib.sha256(json.dumps(
-        users[0].get("content") if users else None, sort_keys=True, ensure_ascii=False,
-    ).encode()).hexdigest()
+def route(messages, session_id=None):
+    key = session_id if session_id and len(session_id) <= 128 else None
     last_is_user = bool(messages) and messages[-1].get("role") == "user"
     needs_vision = has_images(messages)
 
-    pinned = sessions.get(key)
+    pinned = pinned_tier(key)
     if not last_is_user and compatible(pinned, needs_vision):
         tier, note = pinned, "продолжение"
     else:
@@ -322,12 +355,73 @@ def route(messages):
         if compatible(pinned, needs_vision) and pinned in ORDER and tier in ORDER \
                 and ORDER.index(tier) < ORDER.index(pinned):
             tier, note = pinned, note + ", удержан " + pinned
-        sessions[key] = tier
-
-    task = text_of(users[-1].get("content")) if users else ""
-    task = task.replace("\n", " ")[:70] or ("[изображение]" if needs_vision else "")
-    print("%s  %-6s -> %s  [%s]  %s" % (now(), tier, TIERS[tier]["model"], note, task), flush=True)
+    print("%s  %-6s -> %s  [%s]" % (now(), tier, TIERS[tier]["model"], note), flush=True)
     return tier, key
+
+
+# OpenCode и другие клиенты сохраняют reasoning прошлых ответов и присылают его
+# обратно в messages. Зашифрованный reasoning привязан к модели и эндпоинту,
+# которые его выдали: после смены модели (sol: gpt-6.1-sol -> gpt-6.2-sol)
+# провайдер отвечает 400 "The encrypted content for item rs_... could not be
+# verified" — и так на каждом ходе, пока элемент лежит в истории.
+# Поэтому перед отправкой убираем reasoning целиком. JEV_KEEP_REASONING=1 отключает.
+KEEP_REASONING = os.environ.get("JEV_KEEP_REASONING", "0") == "1"
+REASONING_FIELDS = ("reasoning", "reasoning_details", "reasoning_text",
+                    "reasoning_content", "reasoning_opaque")
+
+
+def is_reasoning_part(part):
+    """True для части content, которая является рассуждением модели."""
+    if not isinstance(part, dict):
+        return False
+    kind = str(part.get("type", ""))
+    if kind.startswith("reasoning") or kind in ("thinking", "redacted_thinking"):
+        return True
+    if part.get("encrypted_content") or part.get("reasoning_opaque"):
+        return True
+    return str(part.get("id", "")).startswith("rs_")  # id элемента Responses API
+
+
+def sanitize_reasoning(body):
+    """Убрать из messages рассуждения, привязанные к модели-источнику.
+
+    Возвращает новое тело, исходное не меняется. Целевой модели чужой reasoning
+    не нужен: он тратит токены, а зашифрованный под другую модель/эндпоинт ещё и
+    ломает весь запрос (400 "The encrypted content ... could not be verified").
+    Отключается переменной окружения JEV_KEEP_REASONING=1.
+    """
+    if KEEP_REASONING or not isinstance(body.get("messages"), list):
+        return body
+    cleaned, changed = [], False
+    for message in body["messages"]:
+        if not isinstance(message, dict):
+            cleaned.append(message)
+            continue
+        had_reasoning = any(field in message for field in REASONING_FIELDS)
+        content = message.get("content")
+        if not had_reasoning and not isinstance(content, list):
+            cleaned.append(message)
+            continue
+        message = {k: v for k, v in message.items() if k not in REASONING_FIELDS}
+        removed = had_reasoning
+        if isinstance(content, list):
+            filtered = [part for part in content if not is_reasoning_part(part)]
+            if len(filtered) != len(content):
+                removed = True
+                message["content"] = filtered or ""
+        if not removed:
+            cleaned.append(message)
+            continue
+        changed = True
+        # Сообщение состояло только из рассуждений — отправлять нечего.
+        if not message.get("content") and not message.get("tool_calls"):
+            continue
+        cleaned.append(message)
+    if not changed:
+        return body
+    copy = dict(body)
+    copy["messages"] = cleaned
+    return copy
 
 
 # On by default: verified 2026-11-17 on Haiku (cached_tokens 7554 of 7575 on the repeat call).
@@ -410,11 +504,22 @@ class Handler(BaseHTTPRequestHandler):
             self.send_bytes(404, "application/json", b'{"error": "not found"}')
 
     def do_POST(self):
-        raw = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        # Native clients do not send Origin. Reject third-party browser pages
+        # before reading a body or making a billable upstream request.
+        origin = self.headers.get("Origin")
+        port = self.server.server_port if origin is not None else None
+        if origin is not None and origin not in {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}:
+            self.send_bytes(403, "application/json", b'{"error": "origin not allowed"}')
+            return
         try:
-            body = json.loads(raw)
+            length = int(self.headers.get("Content-Length", 0))
+            if length <= 0:
+                raise ValueError
+            body = json.loads(self.rfile.read(length))
+            if not isinstance(body, dict):
+                raise ValueError
         except ValueError:
-            self.send_bytes(400, "application/json", b'{"error": "bad json"}')
+            self.send_bytes(400, "application/json", b'{"error": "expected a JSON object"}')
             return
 
         if not (self.path.rstrip("/").endswith("/chat/completions") and body.get("model") == "auto"):
@@ -425,21 +530,29 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_bytes(*err)
             return
 
-        tier, key = route(body.get("messages", []))
-        needs_vision = has_images(body.get("messages", []))
+        messages = body.get("messages")
+        if not isinstance(messages, list) or not messages or not all(isinstance(m, dict) for m in messages):
+            self.send_bytes(400, "application/json", b'{"error": "expected a nonempty messages array"}')
+            return
+        # Чужой reasoning чистим и для Jev (чтобы не сбивал выбор), и для модели.
+        clean = sanitize_reasoning(body)
+        messages = clean["messages"]
+        tier, key = route(messages, self.headers.get("X-Jev-Session-ID"))
+        needs_vision = has_images(messages)
         chain = [name for name in [tier] + TIERS[tier]["fallback"]
                  if compatible(name, needs_vision)]
         if not chain:
             chain = [safe_tier(needs_vision)]
         for i, name in enumerate(chain):
-            body["model"] = TIERS[name]["model"]
-            resp, err = open_upstream(self.path, with_anthropic_cache(body))
+            clean["model"] = TIERS[name]["model"]
+            resp, err = open_upstream(self.path, with_anthropic_cache(clean))
             if resp:
-                if i > 0:
-                    sessions[key] = name   # дальше в этой задаче сразу запасная модель
+                remember_tier(key, name)
                 self.stream(resp)
                 return
-            print("   %s ошибка %s: %s" % (body["model"], err[0], err[2][:200].decode(errors="replace")), flush=True)
+            print("   %s ошибка %s" % (clean["model"], err[0]), flush=True)
+            if err[0] in (401, 402, 403):
+                break
             if i + 1 < len(chain):
                 print("%s  %-6s -> %s  [запасная]" % (now(), chain[i + 1], TIERS[chain[i + 1]]["model"]), flush=True)
         self.send_bytes(*err)
@@ -447,14 +560,14 @@ class Handler(BaseHTTPRequestHandler):
 
 def parse_disabled(argv, environ):
     """Names from --disable a,b and JEV_DISABLE_TIERS=a,b; both may be used."""
-    names = []
-    for i, arg in enumerate(argv):
-        if arg == "--disable" and i + 1 < len(argv):
-            names += argv[i + 1].split(",")
-        elif arg.startswith("--disable="):
-            names += arg.split("=", 1)[1].split(",")
-    names += environ.get("JEV_DISABLE_TIERS", "").split(",")
-    return [n.strip() for n in names if n.strip()]
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Start the local Jev Router.", allow_abbrev=False)
+    parser.add_argument("--disable", action="append", default=[], metavar="TIER[,TIER...]",
+                        help="exclude tiers from auto routing and the local model catalog")
+    args = parser.parse_args(argv)
+    values = [*args.disable, environ.get("JEV_DISABLE_TIERS", "")]
+    return list(dict.fromkeys(n.strip() for value in values for n in value.split(",") if n.strip()))
 
 
 if __name__ == "__main__":
@@ -462,8 +575,19 @@ if __name__ == "__main__":
     disabled = parse_disabled(sys.argv[1:], os.environ)
     if disabled:
         apply_disabled(disabled)
-    if not KEY:
-        raise SystemExit("Задай ключ: POLZA_API_KEY=sk-polza-... python3 jev_router.py")
-    print("Включены уровни: " + ", ".join(ORDER), flush=True)
-    print("jev_router слушает http://127.0.0.1:%d — в Goose выбирай модель auto" % PORT, flush=True)
-    ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+    if sys.version_info < (3, 10):
+        raise SystemExit("Python 3.10 or newer is required.")
+    if not has_api_key(KEY):
+        raise SystemExit("Set POLZA_API_KEY to your real Polza key before starting Jev.")
+    try:
+        port = router_port(os.environ)
+        server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    except (ValueError, OSError) as error:
+        raise SystemExit(f"Cannot start Jev Router: {error}")
+    with server:
+        print("Enabled tiers: " + ", ".join(ORDER), flush=True)
+        print(f"Jev Router listening on http://127.0.0.1:{port}", flush=True)
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass

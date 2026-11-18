@@ -10,14 +10,22 @@ permissions:
 
 jobs:
   tests:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         python-version: ['3.10', '3.12']
+        include:
+          - os: windows-latest
+            python-version: '3.12'
     env:
       PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,7 +36,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Run explicit offline tests (stdlib only)
-        run: python3 -m unittest -v test_jev_router test_benchmark test_benchmark_scoring test_benchmark_extended
+        run: python3 -m unittest -v test_jev_router test_benchmark test_benchmark_scoring test_benchmark_extended test_build_windows_release test_setup_opencode_jev test_windows_release_smoke
       - name: Check extended synthetic datasets
         run: python3 -m benchmark.extended --check
       - name: Plan benchmark offline

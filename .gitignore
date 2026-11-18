@@ -28,3 +28,6 @@ htmlcov/
 # Local benchmark prices and paid run artifacts
 benchmark/config.local.json
 benchmark/runs/
+
+# Legacy local Windows staging may contain credentials; never publish it.
+/Jev_OpenCode_Windows/

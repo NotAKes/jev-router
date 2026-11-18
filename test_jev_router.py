@@ -44,11 +44,13 @@ class VisionRoutingTests(unittest.TestCase):
         self.network.return_value = response
         return response
 
-    def post(self, body):
+    def post(self, body, session_id=None):
         handler = router.Handler.__new__(router.Handler)
         handler.path = "/v1/chat/completions"
         raw = json.dumps(body).encode()
         handler.headers = {"Content-Length": str(len(raw))}
+        if session_id is not None:
+            handler.headers["X-Jev-Session-ID"] = session_id
         handler.rfile = io.BytesIO(raw)
         handler.stream = Mock()
         handler.send_bytes = Mock()
@@ -174,21 +176,36 @@ class VisionRoutingTests(unittest.TestCase):
     def test_continuation_reuses_tier_without_analysis(self):
         with patch.object(router, "describe_image", return_value="screenshot") as describe, \
                 patch.object(router, "ask_jev", return_value=("sonnet", 1.0, {})) as ask:
-            first = router.route(self.messages)
+            first = router.route(self.messages, "chat-1")
+            router.remember_tier(first[1], first[0])
             describe.reset_mock()
             ask.reset_mock()
             continuation = self.messages + [{"role": "assistant", "content": "Working"},
                                             {"role": "tool", "content": "done", "tool_call_id": "t1"}]
-            self.assertEqual(router.route(continuation), first)
+            self.assertEqual(router.route(continuation, "chat-1"), first)
             describe.assert_not_called()
             ask.assert_not_called()
 
-    def test_image_only_sessions_have_separate_keys(self):
-        with patch.object(router, "describe_image", return_value="same description"), \
-                patch.object(router, "ask_jev", return_value=("sonnet", 1.0, {})):
-            _, first = router.route(self.messages)
-            _, second = router.route([user([image("https://example.test/other.png")])])
-        self.assertNotEqual(first, second)
+    def test_identical_prompts_in_separate_chats_do_not_share_a_tier(self):
+        for first_id, second_id in ((None, None), ("chat-a", "chat-b")):
+            with self.subTest(first_id=first_id), \
+                    patch.object(router, "ask_jev", side_effect=[("opus", 1.0, {}), ("haiku", 1.0, {})]):
+                messages = [user("hello")]
+                first, key = router.route(messages, first_id)
+                router.remember_tier(key, first)
+                second, _ = router.route(messages, second_id)
+                self.assertEqual((first, second), ("opus", "haiku"))
+
+    def test_session_cache_is_bounded_and_expires(self):
+        with patch.object(router, "SESSION_LIMIT", 2), patch.object(router.time, "monotonic") as clock:
+            clock.return_value = 100
+            router.remember_tier("a", "opus")
+            router.remember_tier("b", "haiku")
+            self.assertEqual(router.pinned_tier("a"), "opus")
+            router.remember_tier("c", "sonnet")
+            self.assertIsNone(router.pinned_tier("b"))
+            clock.return_value += router.SESSION_TTL
+            self.assertIsNone(router.pinned_tier("a"))
 
     def test_invalid_jev_tier_falls_back(self):
         with patch.object(router, "ask_jev", return_value=("nonexistent", 1.0, {})):
@@ -266,6 +283,112 @@ class VisionRoutingTests(unittest.TestCase):
                 patch.object(router, "open_upstream", side_effect=upstream):
             self.post({"model": "auto", "messages": self.messages + [user("continue")]})
         self.assertEqual(called, [tiers["haiku"]["model"], tiers["sonnet"]["model"]])
+        self.assertEqual(router.pinned_tier("session"), "sonnet")
+
+    def test_handler_passes_explicit_session_id(self):
+        messages = [user("hello")]
+        with patch.object(router, "route", return_value=("haiku", "chat-a")) as route, \
+                patch.object(router, "open_upstream", return_value=(Mock(), None)):
+            self.post({"model": "auto", "messages": messages}, session_id="chat-a")
+        route.assert_called_once_with(messages, "chat-a")
+        self.assertEqual(router.pinned_tier("chat-a"), "haiku")
+
+    def test_handler_does_not_retry_auth_and_billing_errors(self):
+        for status in (401, 402, 403):
+            with self.subTest(status=status):
+                error = (status, "application/json", b"upstream error")
+                with patch.object(router, "route", return_value=("haiku", "chat-a")), \
+                        patch.object(router, "open_upstream", return_value=(None, error)) as upstream:
+                    handler = self.post({"model": "auto", "messages": [user("hello")]})
+                upstream.assert_called_once()
+                handler.send_bytes.assert_called_once_with(*error)
+                self.assertIsNone(router.pinned_tier("chat-a"))
+
+
+class ReasoningReplayTests(unittest.TestCase):
+    """OpenCode присылает reasoning прошлых ответов, а он привязан к модели."""
+
+    ITEM_ID = "rs_0b119948a311a07f016afca925a0b481978df6706e9ea9683a"
+
+    def history(self):
+        # Форма из живой ошибки 400: reasoning_details + текстовая part + reasoning_opaque.
+        return [
+            {"role": "user", "content": "Привет"},
+            {"role": "assistant", "content": [
+                {"type": "text", "text": "Готов помочь."},
+                {"type": "reasoning", "text": "endpoint_slug: openai/gpt-6.1-sol-20260929|azure"},
+            ], "reasoning_details": [{
+                "type": "reasoning.encrypted", "data": "gAAAAABq_Kkmm7QG3BVV",
+                "id": self.ITEM_ID, "format": "azure-openai-responses-v1", "index": 0}],
+             "reasoning_opaque": "gAAAAABq_Kkmm7QG3BVV"},
+            {"role": "user", "content": "настрой провайдера"},
+        ]
+
+    def test_encrypted_reasoning_and_reasoning_parts_are_removed(self):
+        request = {"model": "auto", "messages": self.history()}
+        original = copy.deepcopy(request)
+        clean = router.sanitize_reasoning(request)
+        self.assertEqual(request, original)                     # исходник не меняется
+        self.assertNotIn("reasoning_details", json.dumps(clean))
+        self.assertNotIn(self.ITEM_ID, json.dumps(clean))
+        self.assertEqual(clean["messages"][1]["content"],
+                         [{"type": "text", "text": "Готов помочь."}])
+        self.assertEqual([m["role"] for m in clean["messages"]], ["user", "assistant", "user"])
+
+    def test_parts_with_reasoning_id_or_encrypted_content_are_removed(self):
+        messages = [{"role": "assistant", "content": [
+            {"type": "text", "text": "ok"},
+            {"id": self.ITEM_ID},
+            {"type": "text", "text": "blob", "encrypted_content": "gAAAA"},
+            {"type": "thinking", "thinking": "..."}]}]
+        clean = router.sanitize_reasoning({"messages": messages})
+        self.assertEqual(clean["messages"][0]["content"], [{"type": "text", "text": "ok"}])
+
+    def test_plain_reasoning_fields_are_stripped(self):
+        messages = [{"role": "assistant", "content": "ответ", "reasoning_content": "думал",
+                     "reasoning_text": "думал"}]
+        clean = router.sanitize_reasoning({"messages": messages})
+        self.assertEqual(clean["messages"], [{"role": "assistant", "content": "ответ"}])
+
+    def test_message_with_only_reasoning_is_dropped(self):
+        messages = [user("go"), {"role": "assistant", "content": "", "reasoning_content": "думал"},
+                    user("дальше")]
+        clean = router.sanitize_reasoning({"messages": messages})
+        self.assertEqual([m["role"] for m in clean["messages"]], ["user", "user"])
+
+    def test_tool_call_message_keeps_tool_calls(self):
+        messages = [{"role": "assistant", "content": None, "reasoning_content": "думал",
+                     "tool_calls": [{"id": "call_1", "type": "function"}]}]
+        clean = router.sanitize_reasoning({"messages": messages})
+        self.assertEqual(clean["messages"], [{"role": "assistant", "content": None,
+                                              "tool_calls": [{"id": "call_1", "type": "function"}]}])
+
+    def test_untouched_requests_are_returned_as_is(self):
+        request = {"model": "auto", "messages": [user("привет")]}
+        self.assertIs(router.sanitize_reasoning(request), request)
+        body = {"model": "auto"}
+        self.assertIs(router.sanitize_reasoning(body), body)
+
+    def test_keep_reasoning_flag_switches_off(self):
+        request = {"messages": self.history()}
+        with patch.object(router, "KEEP_REASONING", True):
+            self.assertIs(router.sanitize_reasoning(request), request)
+
+    def test_handler_sends_sanitized_history_upstream(self):
+        handler = router.Handler.__new__(router.Handler)
+        handler.path = "/v1/chat/completions"
+        raw = json.dumps({"model": "auto", "messages": self.history()}).encode()
+        handler.headers = {"Content-Length": str(len(raw))}
+        handler.rfile = io.BytesIO(raw)
+        handler.stream, handler.send_bytes = Mock(), Mock()
+        with patch.object(router, "route", return_value=("sol", "session")), \
+                patch.object(router, "ANTHROPIC_CACHE", False), \
+                patch.object(router, "open_upstream", return_value=(Mock(), None)) as upstream:
+            handler.do_POST()
+        sent = upstream.call_args.args[1]
+        self.assertEqual(sent["model"], router.TIERS["sol"]["model"])
+        self.assertNotIn(self.ITEM_ID, json.dumps(sent))
+        handler.stream.assert_called_once()
 
 
 class CachingTests(unittest.TestCase):
@@ -308,16 +431,18 @@ class CachingTests(unittest.TestCase):
     def test_tier_is_not_downgraded_within_session(self):
         with patch.object(router, "describe_image", return_value="x"), \
                 patch.object(router, "ask_jev", side_effect=[("opus", 1.0, {}), ("haiku", 1.0, {})]):
-            router.route([user("big task")])
+            first, key = router.route([user("big task")], "big")
+            router.remember_tier(key, first)
             tier, _ = router.route([user("big task"), {"role": "assistant", "content": "ok"},
-                                    user("small follow-up")])
+                                    user("small follow-up")], "big")
         self.assertEqual(tier, "opus")
 
     def test_tier_can_be_upgraded_within_session(self):
         with patch.object(router, "ask_jev", side_effect=[("haiku", 1.0, {}), ("opus", 1.0, {})]):
-            router.route([user("task")])
+            first, key = router.route([user("task")], "hard")
+            router.remember_tier(key, first)
             tier, _ = router.route([user("task"), {"role": "assistant", "content": "ok"},
-                                    user("harder")])
+                                    user("harder")], "hard")
         self.assertEqual(tier, "opus")
 
 
@@ -389,6 +514,13 @@ class TierDisablingTests(unittest.TestCase):
 
     def test_flags_and_env_are_combined(self):
         names = router.parse_disabled(["--disable", "mini,flash", "--disable=opus"],
-                                      {"JEV_DISABLE_TIERS": "haiku"})
+                                      {"JEV_DISABLE_TIERS": "haiku, mini, opus, opus"})
         self.assertEqual(sorted(names), ["flash", "haiku", "mini", "opus"])
         self.assertEqual(router.parse_disabled([], {}), [])
+
+    def test_invalid_cli_flags_fail_instead_of_starting_router(self):
+        for argv in (["--disable"], ["--disabl=opus"], ["unexpected"]):
+            with self.subTest(argv=argv), patch("sys.stderr", new_callable=io.StringIO):
+                with self.assertRaises(SystemExit) as error:
+                    router.parse_disabled(argv, {})
+                self.assertEqual(error.exception.code, 2)
