@@ -2,7 +2,7 @@
 
 OpenCode — клиент к OpenAI-совместимым API. В этой схеме он не знает ни одной
 модели Polza: он всегда просит модель `auto`, а роутер сам выбирает уровень
-(Haiku / Mini / Flash / Sol / Sonnet / Sol Pro / Opus / Astra / Astra Pro).
+(Haiku / Mini / Flash / Terra 6.1 / Sol 6.1 / Sol 6.2 / Sonnet / Sol Pro / Opus / Astra / Astra Pro).
 
 Сначала должен работать сам роутер — см. [QUICKSTART.md](QUICKSTART.md).
 Дальше всё сводится к одному JSON-файлу настроек.

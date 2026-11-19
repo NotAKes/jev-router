@@ -122,9 +122,7 @@ def plan(cases, config):
             costs[strategy] += estimate_call(main_body(case, config[key], config), config)
         # Reserve worst direct fallback chain, plus analyzer and Jev. Cold cache.
         main = max(sum(estimate_call(main_body(case, router.TIERS[t]["model"], config), config)
-                       for t in [tier] + router.TIERS[tier]["fallback"]
-                       if router.compatible(t, router.has_images(case["messages"])) and
-                       router.TIERS[t]["model"] in config.get("prices", {}))
+                       for t in [tier] + router.TIERS[tier]["fallback"] if router.compatible(t, router.has_images(case["messages"])))
                    for tier in router.ORDER if router.compatible(tier, router.has_images(case["messages"])))
         analysis = sum(estimate_call({"model": router.VISION_MODEL, "messages": [
             {"role": "system", "content": router.VISION_PROMPT},

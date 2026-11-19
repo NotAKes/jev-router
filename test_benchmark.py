@@ -182,6 +182,14 @@ class GuardTests(OfflineTest):
         self.assertEqual(self.cli("plan", tty=False)[0], 0)
         self.network.assert_not_called()
 
+    def test_plan_rejects_missing_intermediate_model_rate(self):
+        model = bench.router.TIERS["terra"]["model"]
+        config = copy.deepcopy(self.config)
+        config["prices"].pop(model)
+        with self.assertRaisesRegex(ValueError, "Set token prices for " + model):
+            bench.plan(self.cases, config)
+        self.network.assert_not_called()
+
     def test_missing_prices_plan_validates_but_run_denied(self):
         config = bench.read_json(bench.ROOT / "config.example.json")
         config["prices"][config["cheap_model"]]["input_per_million_rub"] = None

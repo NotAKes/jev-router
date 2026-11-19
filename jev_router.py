@@ -3,7 +3,7 @@
 jev_router — локальный прокси между Goose и Polza.
 
 Goose отправляет запрос с моделью "auto" -> Jev выбирает уровень модели
-(Haiku / Mini / Flash / Sol / Sonnet / Sol Pro / Opus / Astra / Astra Pro)
+(Haiku / Mini / Flash / Terra 6.1 / Sol 6.1 / Sol 6.2 / Sonnet / Sol Pro / Opus / Astra / Astra Pro)
 -> запрос уходит в Polza уже с выбранной моделью.
 Ответ (в том числе потоковый) возвращается в Goose без изменений.
 Если выбранная модель отвечает ошибкой, запрос повторяется на запасной.
@@ -77,7 +77,7 @@ TIERS = {
         "when": "Небольшая рабочая задача с кодом или текстом: скрипт на несколько "
                 "строк, понятная правка, разбор короткого файла, 2–3 связанных шага, "
                 "где нужна надёжность, но не архитектурная глубина.",
-        "fallback": ["flash", "flash-plus", "sol"],
+        "fallback": ["flash", "terra"],
     },
     "flash": {
         "model": "google/gemini-3.8-flash",
@@ -85,46 +85,30 @@ TIERS = {
         "when": "Задача среднего размера с длинным контекстом или документами: "
                 "сводка большого текста или таблицы, поиск по длинному файлу, "
                 "анализ нескольких изображений, где важны скорость и объём контекста.",
-        "fallback": ["flash-plus", "sol", "sonnet"],
+        "fallback": ["terra", "sol-61"],
     },
-    "flash-plus": {
-        "model": "google/gemini-3.8-flash-plus",
+    "terra": {
+        "model": "openai/gpt-6.1-terra",
         "vision": True,
-        "when": "Промежуточная задача между быстрыми уровнями и дорогой Sol: "
-                "нужны лучшее рассуждение и аккуратная правка кода, но ещё не "
-                "требуется полный уровень Sol или Sonnet.",
-        "fallback": ["sol", "sonnet"],
+        "when": "Повседневная разработка сложнее короткой правки: исправить понятную "
+                "ошибку в нескольких файлах, дописать тесты, выполнить несколько "
+                "связанных шагов с инструментами или разобрать скриншот интерфейса.",
+        "fallback": ["sol-61"],
     },
-    "flash-max": {
-        "model": "google/gemini-3.8-flash-max",
+    "sol-61": {
+        "model": "openai/gpt-6.1-sol",
         "vision": True,
-        "when": "Ещё один промежуточный уровень перед Sol 6.2: сложный код, "
-                "много контекста, спорная архитектурная правка или длинная цепочка "
-                "действий, где Flash уже слабоват, а Sol ещё может быть избыточен.",
-        "fallback": ["sol", "sol-pro"],
-    },
-    "sol-lite": {
-        "model": "openai/gpt-6.1-sol-lite",
-        "vision": True,
-        "when": "Почти Sol, но ещё дешевле: средняя сложность кода и текста, "
-                "когда нужен более сильный разбор, чем Flash, но ещё не нужен "
-                "полный дорогой Sol 6.2.",
-        "fallback": ["sol", "sonnet"],
+        "when": "Задача требует проследить поведение через несколько компонентов: "
+                "локализовать источник ошибки по логам, провести связанный рефакторинг "
+                "или сопоставить несколько материалов. Предпочитай этот уровень до Sol 6.2.",
+        "fallback": ["sol"],
     },
     "sol": {
         "model": "openai/gpt-6.2-sol",
         "vision": True,
-        "when": "Обычная работа с кодом и текстом: написать скрипт или функцию, "
-                "исправить понятную ошибку, разобрать документ или таблицу, "
-                "несколько связанных шагов в браузере или терминале.",
-        "fallback": ["sol-pro"],
-    },
-    "sol": {
-        "model": "openai/gpt-6.2-sol",
-        "vision": True,
-        "when": "Обычная работа с кодом и текстом: написать скрипт или функцию, "
-                "исправить понятную ошибку, разобрать документ или таблицу, "
-                "несколько связанных шагов в браузере или терминале.",
+        "when": "Сложная рабочая задача, для которой Sol 6.1 не хватает: "
+                "неоднозначная отладка или длинная цепочка зависимых шагов "
+                "с нетривиальной проверкой результата. Не выбирай для обычной правки.",
         "fallback": ["sonnet"],
     },
     "sonnet": {
@@ -170,7 +154,9 @@ TIERS = {
         "fallback": ["astra", "opus"],
     },
 }
-ORDER = ["haiku", "mini", "flash", "flash-plus", "flash-max", "sol-lite", "sol", "sonnet", "sol-pro", "opus", "astra", "astra-pro"]
+ORDER = list(TIERS)
+# Keep existing --disable lists valid after replacing unavailable model IDs.
+DISABLE_ALIASES = {"flash-plus": "terra", "flash-max": "sol-61", "sol-lite": "sol-61"}
 
 DEFAULT_TIER = "sonnet"     # если Jev недоступен (меняется при отключении уровней)
 UNSURE = 0.5                # ниже этой уверенности Jev считается неуверенным
@@ -179,7 +165,7 @@ CANDIDATE = 0.25            # при неуверенности берём са�
 
 def apply_disabled(names):
     """Remove disabled tiers everywhere: Jev choices, fallbacks, default and order."""
-    names = list(dict.fromkeys(names))
+    names = list(dict.fromkeys(DISABLE_ALIASES.get(name, name) for name in names))
     unknown = [n for n in names if n not in TIERS]
     if unknown:
         raise SystemExit("Неизвестные уровни для отключения: " + ", ".join(unknown))

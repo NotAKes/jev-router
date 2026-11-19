@@ -285,6 +285,15 @@ class VisionRoutingTests(unittest.TestCase):
         self.assertEqual(called, [tiers["haiku"]["model"], tiers["sonnet"]["model"]])
         self.assertEqual(router.pinned_tier("session"), "sonnet")
 
+    def test_auto_forwards_to_verified_intermediate_models(self):
+        for tier, model in (("terra", "openai/gpt-6.1-terra"), ("sol-61", "openai/gpt-6.1-sol")):
+            with self.subTest(tier=tier), patch.object(router, "ask_jev", return_value=(tier, 1.0, {})), \
+                    patch.object(router, "open_upstream", return_value=(Mock(), None)) as upstream:
+                handler = self.post({"model": "auto", "messages": [user("review this change")]})
+                upstream.assert_called_once()
+                self.assertEqual(upstream.call_args.args[1]["model"], model)
+                handler.stream.assert_called_once()
+
     def test_handler_passes_explicit_session_id(self):
         messages = [user("hello")]
         with patch.object(router, "route", return_value=("haiku", "chat-a")) as route, \
@@ -517,6 +526,13 @@ class TierDisablingTests(unittest.TestCase):
                                       {"JEV_DISABLE_TIERS": "haiku, mini, opus, opus"})
         self.assertEqual(sorted(names), ["flash", "haiku", "mini", "opus"])
         self.assertEqual(router.parse_disabled([], {}), [])
+
+    def test_legacy_disable_names_remain_valid(self):
+        router.apply_disabled(["flash-plus", "flash-max", "sol-lite", "sol-61"])
+        self.assertNotIn("terra", router.ORDER)
+        self.assertNotIn("sol-61", router.ORDER)
+        self.assertNotIn("terra", router.TIERS["mini"]["fallback"])
+        self.assertIn("sol", router.ORDER)
 
     def test_invalid_cli_flags_fail_instead_of_starting_router(self):
         for argv in (["--disable"], ["--disabl=opus"], ["unexpected"]):

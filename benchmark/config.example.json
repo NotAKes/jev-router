@@ -5,6 +5,7 @@
   "image_input_tokens": 8192,
   "prices_checked_at": "2026-11-15",
   "gpt_62_prices_checked_at": "2026-11-17",
+  "intermediate_prices_checked_at": "2026-11-19",
   "prices_source": "https://polza.ai/api/v1/models",
   "prices": {
     "anthropic/claude-haiku-5.5": {
@@ -27,9 +28,13 @@
       "input_per_million_rub": 948.9024,
       "output_per_million_rub": 4744.512
     },
+    "openai/gpt-6.1-terra": {
+      "input_per_million_rub": 59.3064,
+      "output_per_million_rub": 296.532
+    },
     "openai/gpt-6.1-sol": {
-      "input_per_million_rub": 121.716,
-      "output_per_million_rub": 608.58
+      "input_per_million_rub": 121.0839,
+      "output_per_million_rub": 605.4195
     },
     "anthropic/claude-sonnet-5.5": {
       "input_per_million_rub": 192.092688,
