@@ -32,6 +32,8 @@ jobs:
         run: python -m pip install 'pyinstaller>=6.15,<7'
       - name: Build onedir GUI
         run: python -m PyInstaller --noconfirm --onedir --windowed --name JevRouter --distpath dist/gui jev_gui.py
+      - name: Verify frozen worker help without starting router
+        run: python -c "import subprocess; p = subprocess.run([r'dist/gui/JevRouter/JevRouter.exe', '--router-worker', '--help'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30); print(p.stdout.decode('utf-8', errors='replace')); assert p.returncode == 0 and b'--disable' in p.stdout"
       - name: Package application directory
         shell: pwsh
         run: |
@@ -45,8 +47,16 @@ jobs:
           if-no-files-found: error
 
   macos:
-    name: macOS arm64
-    runs-on: macos-14
+    name: macOS ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     steps:
       - name: Checkout selected commit
@@ -58,20 +68,22 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          architecture: arm64
+          architecture: ${{ matrix.arch == 'arm64' && 'arm64' || 'x64' }}
       - name: Check architecture and Tkinter
-        run: python -c "import platform, tkinter; assert platform.machine().lower() in ('arm64', 'aarch64'), platform.machine()"
+        run: python -c "import platform, tkinter; assert platform.machine().lower() == '${{ matrix.arch }}', platform.machine()"
       - name: Install PyInstaller
         run: python -m pip install 'pyinstaller>=6.15,<7'
       - name: Build app bundle
         run: python -m PyInstaller --noconfirm --onedir --windowed --name JevRouter --osx-bundle-identifier ai.jev.router --distpath dist/gui jev_gui.py
+      - name: Verify frozen worker help without starting router
+        run: python -c "import subprocess; p = subprocess.run(['dist/gui/JevRouter.app/Contents/MacOS/JevRouter', '--router-worker', '--help'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30); print(p.stdout.decode('utf-8', errors='replace')); assert p.returncode == 0 and b'--disable' in p.stdout"
       - name: Package app bundle with symlinks
         run: |
           test -f dist/gui/JevRouter.app/Contents/MacOS/JevRouter
-          ditto -c -k --keepParent dist/gui/JevRouter.app "$RUNNER_TEMP/jev-router-gui-macos-arm64.zip"
+          ditto -c -k --keepParent dist/gui/JevRouter.app "$RUNNER_TEMP/jev-router-gui-macos-${{ matrix.arch }}.zip"
       - name: Upload ZIP as an Actions artifact
         uses: actions/upload-artifact@v4
         with:
-          name: jev-router-gui-macos-arm64
-          path: ${{ runner.temp }}/jev-router-gui-macos-arm64.zip
+          name: jev-router-gui-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/jev-router-gui-macos-${{ matrix.arch }}.zip
           if-no-files-found: error
