@@ -11,6 +11,7 @@ secrets.yaml
 
 # Python environments and caches
 .venv/
+.venv-gui/
 venv/
 __pycache__/
 *.py[cod]
@@ -31,3 +32,7 @@ benchmark/runs/
 
 # Legacy local Windows staging may contain credentials; never publish it.
 /Jev_OpenCode_Windows/
+
+# Desktop application build outputs
+/build/
+/dist/

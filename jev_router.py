@@ -72,7 +72,7 @@ TIERS = {
         "fallback": ["mini", "sonnet"],
     },
     "mini": {
-        "model": "openai/gpt-5.4-mini",
+        "model": "openai/gpt-6-luna-pro",
         "vision": True,
         "when": "Небольшая рабочая задача с кодом или текстом: скрипт на несколько "
                 "строк, понятная правка, разбор короткого файла, 2–3 связанных шага, "
@@ -588,9 +588,10 @@ def parse_disabled(argv, environ):
     return list(dict.fromkeys(n.strip() for value in values for n in value.split(",") if n.strip()))
 
 
-if __name__ == "__main__":
+def main(argv=None):
+    """Run the server, including from the packaged GUI's worker process."""
     import sys
-    disabled = parse_disabled(sys.argv[1:], os.environ)
+    disabled = parse_disabled(sys.argv[1:] if argv is None else argv, os.environ)
     if disabled:
         apply_disabled(disabled)
     if sys.version_info < (3, 10):
@@ -609,3 +610,7 @@ if __name__ == "__main__":
             server.serve_forever()
         except KeyboardInterrupt:
             pass
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,77 @@
+name: Build GUI packages
+
+# workflow_dispatch runs the workflow from the selected ref. GitHub requires
+# this workflow file to exist on the default branch for manual dispatch.
+# These are Actions artifacts, not GitHub Release assets: the updater only
+# checks assets attached to a published Release, not artifacts from this run.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows x86_64
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout selected commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Check architecture and Tkinter
+        run: python -c "import platform, tkinter; assert platform.machine().lower() in ('amd64', 'x86_64'), platform.machine()"
+      - name: Install PyInstaller
+        run: python -m pip install 'pyinstaller>=6.15,<7'
+      - name: Build onedir GUI
+        run: python -m PyInstaller --noconfirm --onedir --windowed --name JevRouter --distpath dist/gui jev_gui.py
+      - name: Package application directory
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'dist/gui/JevRouter/JevRouter.exe')) { throw 'GUI executable missing' }
+          Compress-Archive -Path 'dist/gui/JevRouter' -DestinationPath "$env:RUNNER_TEMP/jev-router-gui-windows-x86_64.zip"
+      - name: Upload ZIP as an Actions artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jev-router-gui-windows-x86_64
+          path: ${{ runner.temp }}/jev-router-gui-windows-x86_64.zip
+          if-no-files-found: error
+
+  macos:
+    name: macOS arm64
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - name: Checkout selected commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: arm64
+      - name: Check architecture and Tkinter
+        run: python -c "import platform, tkinter; assert platform.machine().lower() in ('arm64', 'aarch64'), platform.machine()"
+      - name: Install PyInstaller
+        run: python -m pip install 'pyinstaller>=6.15,<7'
+      - name: Build app bundle
+        run: python -m PyInstaller --noconfirm --onedir --windowed --name JevRouter --osx-bundle-identifier ai.jev.router --distpath dist/gui jev_gui.py
+      - name: Package app bundle with symlinks
+        run: |
+          test -f dist/gui/JevRouter.app/Contents/MacOS/JevRouter
+          ditto -c -k --keepParent dist/gui/JevRouter.app "$RUNNER_TEMP/jev-router-gui-macos-arm64.zip"
+      - name: Upload ZIP as an Actions artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jev-router-gui-macos-arm64
+          path: ${{ runner.temp }}/jev-router-gui-macos-arm64.zip
+          if-no-files-found: error

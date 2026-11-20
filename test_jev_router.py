@@ -286,7 +286,8 @@ class VisionRoutingTests(unittest.TestCase):
         self.assertEqual(router.pinned_tier("session"), "sonnet")
 
     def test_auto_forwards_to_verified_intermediate_models(self):
-        for tier, model in (("terra", "openai/gpt-6.1-terra"), ("sol-61", "openai/gpt-6.1-sol")):
+        for tier, model in (("mini", "openai/gpt-6-luna-pro"),
+                            ("terra", "openai/gpt-6.1-terra"), ("sol-61", "openai/gpt-6.1-sol")):
             with self.subTest(tier=tier), patch.object(router, "ask_jev", return_value=(tier, 1.0, {})), \
                     patch.object(router, "open_upstream", return_value=(Mock(), None)) as upstream:
                 handler = self.post({"model": "auto", "messages": [user("review this change")]})
@@ -473,6 +474,7 @@ class TierDisablingTests(unittest.TestCase):
         for name in ("mini", "flash"):
             self.assertIn(name, router.TIERS)
             self.assertTrue(router.TIERS[name]["vision"])
+        self.assertEqual(router.TIERS["mini"]["model"], "openai/gpt-6-luna-pro")
         self.assertEqual(router.ORDER.index("haiku") + 1, router.ORDER.index("mini"))
         self.assertLess(router.ORDER.index("flash"), router.ORDER.index("sol"))
 

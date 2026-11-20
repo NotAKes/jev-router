@@ -36,7 +36,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Run explicit offline tests (stdlib only)
-        run: python3 -m unittest -v test_jev_router test_benchmark test_benchmark_scoring test_benchmark_extended test_build_windows_release test_setup_opencode_jev test_windows_release_smoke
+        run: python3 -m unittest -v test_jev_router test_benchmark test_benchmark_scoring test_benchmark_extended test_build_windows_release test_setup_opencode_jev test_windows_release_smoke test_router_entrypoint test_jev_gui test_jev_updates
       - name: Check extended synthetic datasets
         run: python3 -m benchmark.extended --check
       - name: Plan benchmark offline

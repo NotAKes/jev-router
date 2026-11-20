@@ -6,6 +6,7 @@
   "prices_checked_at": "2026-11-15",
   "gpt_62_prices_checked_at": "2026-11-17",
   "intermediate_prices_checked_at": "2026-11-19",
+  "luna_pro_prices_checked_at": "2026-11-19",
   "prices_source": "https://polza.ai/api/v1/models",
   "prices": {
     "anthropic/claude-haiku-5.5": {
@@ -51,9 +52,9 @@
     "typesafe/jev": {
       "input_per_million_rub": 17.388
     },
-    "openai/gpt-5.4-mini": {
-      "input_per_million_rub": 45.4064625,
-      "output_per_million_rub": 272.438775
+    "openai/gpt-6-luna-pro": {
+      "input_per_million_rub": 6.054195,
+      "output_per_million_rub": 30.270975
     },
     "google/gemini-3.8-flash": {
       "input_per_million_rub": 45.4064625,
